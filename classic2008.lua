@@ -1,108 +1,321 @@
---========================================================--
---              ROBLOX CLASSIC 2008 VISUAL               --
---                    CLIENT SIDE                        --
---========================================================--
+--============================================================--
+--                  ROBLOX CLASSIC 2008                     --
+--                  CLIENT VISUAL EDITION                   --
+--============================================================--
 
 local Players = game:GetService("Players")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 
-local Player = Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
 
---========================================================--
+--============================================================--
 -- CONFIGURAÇÃO
---========================================================--
+--============================================================--
 
 local CONFIG = {
-    ClassicMaterials = true,
-    ClassicStuds = true,
     ClassicLighting = true,
-    RemoveModernEffects = true,
+    ClassicMaterials = true,
+    ClassicSurfaces = true,
     ClassicWater = true,
+    ClassicSky = true,
+
+    -- Reaplica alterações em objetos adicionados depois
     AutoReapply = true,
+
+    -- Interface
+    ShowGUI = true,
 }
 
-local enabled = true
+local Enabled = true
 
---========================================================--
--- ILUMINAÇÃO CLÁSSICA
---========================================================--
+--============================================================--
+-- BACKUPS
+--============================================================--
 
-local function applyLighting()
+local LightingBackup = {}
+local PartBackup = {}
+local EffectBackup = {}
+local OriginalSky = nil
+local ClassicSkyObject = nil
 
-    if not enabled then
-        return
-    end
+--============================================================--
+-- FUNÇÕES AUXILIARES
+--============================================================--
 
+local function safeSet(object, property, value)
     pcall(function()
-        Lighting.Technology = Enum.Technology.Compatibility
+        object[property] = value
     end)
-
-    Lighting.Brightness = 1
-
-    Lighting.Ambient =
-        Color3.fromRGB(128, 128, 128)
-
-    Lighting.OutdoorAmbient =
-        Color3.fromRGB(128, 128, 128)
-
-    Lighting.ColorShift_Top =
-        Color3.fromRGB(0, 0, 0)
-
-    Lighting.ColorShift_Bottom =
-        Color3.fromRGB(0, 0, 0)
-
-    Lighting.GlobalShadows = false
-
-    pcall(function()
-        Lighting.ShadowSoftness = 0
-    end)
-
-    pcall(function()
-        Lighting.EnvironmentDiffuseScale = 0
-        Lighting.EnvironmentSpecularScale = 0
-        Lighting.ExposureCompensation = 0
-    end)
-
-    -- Ambiente simples, sem neblina moderna
-    Lighting.FogStart = 100000
-    Lighting.FogEnd = 100000
 end
 
---========================================================--
--- REMOVER PÓS-PROCESSAMENTO MODERNO
---========================================================--
+local function getParentGui()
+    local ok, gui = pcall(function()
+        return game:GetService("CoreGui")
+    end)
 
-local function removeModernEffects()
+    if ok and gui then
+        return gui
+    end
 
-    if not CONFIG.RemoveModernEffects then
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
+
+--============================================================--
+-- BACKUP DA ILUMINAÇÃO
+--============================================================--
+
+local function backupLighting()
+
+    if next(LightingBackup) ~= nil then
         return
     end
 
-    for _, object in ipairs(Lighting:GetChildren()) do
+    local properties = {
+        "Brightness",
+        "Ambient",
+        "OutdoorAmbient",
+        "ColorShift_Top",
+        "ColorShift_Bottom",
+        "GlobalShadows",
+        "FogStart",
+        "FogEnd",
+        "ShadowSoftness",
+        "ClockTime",
+        "ExposureCompensation",
+    }
 
-        if object:IsA("BloomEffect")
-        or object:IsA("ColorCorrectionEffect")
-        or object:IsA("SunRaysEffect")
-        or object:IsA("DepthOfFieldEffect")
-        or object:IsA("Atmosphere")
-        or object:IsA("BlurEffect") then
+    for _, property in ipairs(properties) do
+        local ok, value = pcall(function()
+            return Lighting[property]
+        end)
 
-            pcall(function()
-                object.Enabled = false
-            end)
-
+        if ok then
+            LightingBackup[property] = value
         end
     end
 end
 
---========================================================--
--- MATERIAIS CLÁSSICOS
---========================================================--
+--============================================================--
+-- ILUMINAÇÃO CLÁSSICA
+--============================================================--
 
-local function applyClassicPart(part)
+local function applyClassicLighting()
 
-    if not enabled then
+    if not Enabled or not CONFIG.ClassicLighting then
+        return
+    end
+
+    backupLighting()
+
+    -- Renderização clássica
+    safeSet(Lighting, "Technology", Enum.Technology.Compatibility)
+
+    -- Valores associados ao visual antigo
+    safeSet(Lighting, "Brightness", 1)
+
+    safeSet(
+        Lighting,
+        "Ambient",
+        Color3.fromRGB(128, 128, 128)
+    )
+
+    safeSet(
+        Lighting,
+        "OutdoorAmbient",
+        Color3.fromRGB(128, 128, 128)
+    )
+
+    safeSet(
+        Lighting,
+        "ColorShift_Top",
+        Color3.fromRGB(0, 0, 0)
+    )
+
+    safeSet(
+        Lighting,
+        "ColorShift_Bottom",
+        Color3.fromRGB(0, 0, 0)
+    )
+
+    -- O antigo visual tinha sombras globais desligadas
+    safeSet(Lighting, "GlobalShadows", false)
+
+    -- Sombras duras
+    safeSet(Lighting, "ShadowSoftness", 0)
+
+    -- Sem neblina moderna exagerada
+    safeSet(Lighting, "FogStart", 100000)
+    safeSet(Lighting, "FogEnd", 100000)
+
+    -- Dia neutro
+    safeSet(Lighting, "ClockTime", 14)
+
+    safeSet(Lighting, "ExposureCompensation", 0)
+end
+
+--============================================================--
+-- EFEITOS MODERNOS
+--============================================================--
+
+local function applyClassicEffects()
+
+    for _, object in ipairs(Lighting:GetChildren()) do
+
+        if object:IsA("PostEffect") then
+
+            if EffectBackup[object] == nil then
+                local ok, enabled = pcall(function()
+                    return object.Enabled
+                end)
+
+                if ok then
+                    EffectBackup[object] = enabled
+                end
+            end
+
+            if object:IsA("BloomEffect")
+            or object:IsA("ColorCorrectionEffect")
+            or object:IsA("SunRaysEffect")
+            or object:IsA("DepthOfFieldEffect")
+            or object:IsA("BlurEffect") then
+
+                safeSet(object, "Enabled", false)
+
+            end
+        end
+
+        if object:IsA("Atmosphere") then
+
+            if EffectBackup[object] == nil then
+                EffectBackup[object] = true
+            end
+
+            safeSet(object, "Enabled", false)
+        end
+    end
+end
+
+--============================================================--
+-- SKYBOX HISTÓRICO 2005-2008
+--============================================================--
+
+local function removeClassicSky()
+
+    if ClassicSkyObject and ClassicSkyObject.Parent then
+        pcall(function()
+            ClassicSkyObject:Destroy()
+        end)
+    end
+
+    ClassicSkyObject = nil
+end
+
+local function loadClassicSky()
+
+    if not Enabled or not CONFIG.ClassicSky then
+        return
+    end
+
+    -- Evita duplicação
+    removeClassicSky()
+
+    -- Salva o sky original uma vez
+    if not OriginalSky then
+
+        local currentSky = Lighting:FindFirstChildOfClass("Sky")
+
+        if currentSky then
+            pcall(function()
+                OriginalSky = currentSky:Clone()
+            end)
+        end
+    end
+
+    -- Remove céu atual
+    local currentSky = Lighting:FindFirstChildOfClass("Sky")
+
+    if currentSky then
+        pcall(function()
+            currentSky:Destroy()
+        end)
+    end
+
+    -- Asset do Creator Store:
+    -- "Old ROBLOX Skybox (better textures)"
+    -- 2005-2008
+    local ok, objects = pcall(function()
+        return game:GetObjects("rbxassetid://672859297")
+    end)
+
+    if not ok or not objects then
+        warn("Não foi possível carregar o skybox clássico.")
+        return
+    end
+
+    local foundSky = nil
+
+    -- Procura Sky dentro do asset
+    for _, object in ipairs(objects) do
+
+        if object:IsA("Sky") then
+            foundSky = object
+            break
+        end
+
+        local descendant = object:FindFirstChildWhichIsA(
+            "Sky",
+            true
+        )
+
+        if descendant then
+            foundSky = descendant
+            break
+        end
+    end
+
+    if foundSky then
+
+        local clone = foundSky:Clone()
+        clone.Name = "Classic2008Sky"
+        clone.Parent = Lighting
+
+        ClassicSkyObject = clone
+
+        -- Configurações celestes discretas
+        safeSet(clone, "StarCount", 0)
+        safeSet(clone, "CelestialBodiesShown", true)
+        safeSet(clone, "SunAngularSize", 11)
+        safeSet(clone, "MoonAngularSize", 0)
+
+        print("✓ Skybox clássico 2005-2008 carregado.")
+
+    else
+
+        warn("O asset não contém um objeto Sky utilizável.")
+
+    end
+
+    -- Destrói containers temporários
+    for _, object in ipairs(objects) do
+
+        if object ~= foundSky
+        and object.Parent == nil then
+
+            pcall(function()
+                object:Destroy()
+            end)
+        end
+    end
+end
+
+--============================================================--
+-- BACKUP DAS PARTES
+--============================================================--
+
+local function backupPart(part)
+
+    if PartBackup[part] then
         return
     end
 
@@ -110,56 +323,128 @@ local function applyClassicPart(part)
         return
     end
 
-    -- MeshParts podem possuir textura própria.
-    -- Não destruímos a aparência deles.
-    if part:IsA("Part") then
+    local data = {}
 
-        if CONFIG.ClassicMaterials then
-            pcall(function()
-                part.Material = Enum.Material.Plastic
-                part.Reflectance = 0
-            end)
-        end
-
-        -- Studs em cima / Inlets embaixo,
-        -- característicos das construções antigas.
-        if CONFIG.ClassicStuds then
-            pcall(function()
-                part.TopSurface = Enum.SurfaceType.Studs
-                part.BottomSurface = Enum.SurfaceType.Inlet
-
-                part.LeftSurface = Enum.SurfaceType.Smooth
-                part.RightSurface = Enum.SurfaceType.Smooth
-                part.FrontSurface = Enum.SurfaceType.Smooth
-                part.BackSurface = Enum.SurfaceType.Smooth
-            end)
-        end
-
-    elseif part:IsA("WedgePart")
-    or part:IsA("CornerWedgePart")
-    or part:IsA("TrussPart") then
-
-        if CONFIG.ClassicMaterials then
-            pcall(function()
-                part.Material = Enum.Material.Plastic
-                part.Reflectance = 0
-            end)
-        end
-
-    elseif part:IsA("MeshPart") then
-
-        -- Apenas removemos reflexo moderno.
+    local okMaterial, material =
         pcall(function()
-            part.Reflectance = 0
+            return part.Material
         end)
 
+    if okMaterial then
+        data.Material = material
+    end
+
+    local okReflectance, reflectance =
+        pcall(function()
+            return part.Reflectance
+        end)
+
+    if okReflectance then
+        data.Reflectance = reflectance
+    end
+
+    if part:IsA("Part") then
+
+        local properties = {
+            "TopSurface",
+            "BottomSurface",
+            "LeftSurface",
+            "RightSurface",
+            "FrontSurface",
+            "BackSurface",
+        }
+
+        for _, property in ipairs(properties) do
+
+            local ok, value =
+                pcall(function()
+                    return part[property]
+                end)
+
+            if ok then
+                data[property] = value
+            end
+        end
+    end
+
+    PartBackup[part] = data
+end
+
+--============================================================--
+-- MATERIAIS / SUPERFÍCIES CLÁSSICAS
+--============================================================--
+
+local function applyClassicPart(part)
+
+    if not Enabled then
+        return
+    end
+
+    if not part:IsA("BasePart") then
+        return
+    end
+
+    backupPart(part)
+
+    -- O Roblox antigo não tinha o conjunto moderno
+    -- de materiais que existe hoje; Plastic é a aproximação.
+    if CONFIG.ClassicMaterials then
+
+        safeSet(
+            part,
+            "Material",
+            Enum.Material.Plastic
+        )
+
+        safeSet(part, "Reflectance", 0)
+    end
+
+    -- Superfícies clássicas.
+    -- Somente Parts normais possuem essas superfícies.
+    if CONFIG.ClassicSurfaces and part:IsA("Part") then
+
+        safeSet(
+            part,
+            "TopSurface",
+            Enum.SurfaceType.Studs
+        )
+
+        safeSet(
+            part,
+            "BottomSurface",
+            Enum.SurfaceType.Inlet
+        )
+
+        -- Laterais lisas, como nos builds antigos.
+        safeSet(
+            part,
+            "LeftSurface",
+            Enum.SurfaceType.Smooth
+        )
+
+        safeSet(
+            part,
+            "RightSurface",
+            Enum.SurfaceType.Smooth
+        )
+
+        safeSet(
+            part,
+            "FrontSurface",
+            Enum.SurfaceType.Smooth
+        )
+
+        safeSet(
+            part,
+            "BackSurface",
+            Enum.SurfaceType.Smooth
+        )
     end
 end
 
 local function applyClassicMaterials()
 
-    if not CONFIG.ClassicMaterials
-    and not CONFIG.ClassicStuds then
+    if not Enabled then
         return
     end
 
@@ -168,13 +453,13 @@ local function applyClassicMaterials()
     end
 end
 
---========================================================--
--- ÁGUA MAIS SIMPLES
---========================================================--
+--============================================================--
+-- ÁGUA
+--============================================================--
 
 local function applyClassicWater()
 
-    if not CONFIG.ClassicWater then
+    if not Enabled or not CONFIG.ClassicWater then
         return
     end
 
@@ -184,190 +469,268 @@ local function applyClassicWater()
         return
     end
 
-    pcall(function()
-
-        terrain.WaterReflectance = 0
-        terrain.WaterTransparency = 0.35
-        terrain.WaterWaveSize = 0
-        terrain.WaterWaveSpeed = 0
-
-    end)
+    safeSet(terrain, "WaterReflectance", 0)
+    safeSet(terrain, "WaterWaveSize", 0)
+    safeSet(terrain, "WaterWaveSpeed", 0)
+    safeSet(terrain, "WaterTransparency", 0.35)
 end
 
---========================================================--
--- SKY CLÁSSICO
---========================================================--
-
-local function applyClassicSky()
-
-    if not enabled then
-        return
-    end
-
-    -- Primeiro procuramos um Sky já existente.
-    local sky = Lighting:FindFirstChildOfClass("Sky")
-
-    if sky then
-
-        pcall(function()
-            sky.StarCount = 0
-            sky.CelestialBodiesShown = true
-            sky.SunAngularSize = 21
-        end)
-
-        return
-    end
-
-    -- Não colocamos IDs de textura inventados.
-    -- Se o jogo já fornecer um skybox clássico,
-    -- ele será preservado.
-end
-
---========================================================--
--- APLICAÇÃO GERAL
---========================================================--
+--============================================================--
+-- APLICAÇÃO COMPLETA
+--============================================================--
 
 local function ApplyClassic()
 
-    applyLighting()
-    removeModernEffects()
-    applyClassicSky()
+    if not Enabled then
+        return
+    end
+
+    applyClassicLighting()
+    applyClassicEffects()
+    loadClassicSky()
     applyClassicMaterials()
     applyClassicWater()
 
-    print("✓ Roblox Classic 2008 aplicado")
+    print("======================================")
+    print(" ROBLOX CLASSIC 2008")
+    print(" Visual clássico ativado")
+    print("======================================")
 end
 
---========================================================--
+--============================================================--
+-- RESTAURAR
+--============================================================--
+
+local function RestoreOriginal()
+
+    Enabled = false
+
+    -- Iluminação
+    for property, value in pairs(LightingBackup) do
+        safeSet(Lighting, property, value)
+    end
+
+    -- Efeitos
+    for object, value in pairs(EffectBackup) do
+
+        if object and object.Parent then
+            safeSet(object, "Enabled", value)
+        end
+    end
+
+    -- Sky clássico
+    removeClassicSky()
+
+    local currentSky = Lighting:FindFirstChildOfClass("Sky")
+
+    if currentSky then
+        pcall(function()
+            currentSky:Destroy()
+        end)
+    end
+
+    if OriginalSky then
+
+        pcall(function()
+            OriginalSky:Clone().Parent = Lighting
+        end)
+    end
+
+    -- Partes
+    for part, data in pairs(PartBackup) do
+
+        if part and part.Parent then
+
+            for property, value in pairs(data) do
+                safeSet(part, property, value)
+            end
+
+        end
+    end
+
+    print("✓ Visual original restaurado.")
+end
+
+--============================================================--
 -- GUI
---========================================================--
+--============================================================--
 
 local function createGUI()
 
-    local playerGui = Player:WaitForChild("PlayerGui")
+    if not CONFIG.ShowGUI then
+        return
+    end
 
-    local old = playerGui:FindFirstChild("Classic2008GUI")
+    local ParentGui = getParentGui()
+
+    local old = ParentGui:FindFirstChild(
+        "Classic2008Interface"
+    )
 
     if old then
         old:Destroy()
     end
 
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "Classic2008GUI"
-    gui.ResetOnSpawn = false
-    gui.Parent = playerGui
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "Classic2008Interface"
+    ScreenGui.ResetOnSpawn = false
 
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 220, 0, 120)
-    frame.Position = UDim2.new(0, 15, 0.5, -60)
-    frame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    frame.BorderSizePixel = 2
-    frame.Parent = gui
+    pcall(function()
+        ScreenGui.IgnoreGuiInset = true
+    end)
 
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 35)
-    title.BackgroundTransparency = 1
-    title.Text = "ROBLOX CLASSIC 2008"
-    title.TextColor3 = Color3.fromRGB(255, 255, 255)
-    title.TextSize = 16
-    title.Font = Enum.Font.SourceSansBold
-    title.Parent = frame
+    ScreenGui.Parent = ParentGui
 
-    local status = Instance.new("TextLabel")
-    status.Size = UDim2.new(1, -20, 0, 25)
-    status.Position = UDim2.new(0, 10, 0, 35)
-    status.BackgroundTransparency = 1
-    status.Text = "● Visual ativado"
-    status.TextColor3 = Color3.fromRGB(100, 255, 100)
-    status.TextSize = 14
-    status.Font = Enum.Font.SourceSans
-    status.Parent = frame
+    local Main = Instance.new("Frame")
+    Main.Size = UDim2.new(0, 245, 0, 185)
+    Main.Position = UDim2.new(0, 15, 0.5, -92)
+    Main.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Main.BorderSizePixel = 2
+    Main.Parent = ScreenGui
 
-    local button = Instance.new("TextButton")
-    button.Size = UDim2.new(1, -20, 0, 40)
-    button.Position = UDim2.new(0, 10, 0, 70)
-    button.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.Text = "DESATIVAR"
-    button.TextSize = 15
-    button.Font = Enum.Font.SourceSansBold
-    button.Parent = frame
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 38)
+    Title.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+    Title.Text = "ROBLOX CLASSIC 2008"
+    Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Title.TextSize = 17
+    Title.Font = Enum.Font.SourceSansBold
+    Title.Parent = Main
 
-    button.MouseButton1Click:Connect(function()
+    local Status = Instance.new("TextLabel")
+    Status.Size = UDim2.new(1, -20, 0, 30)
+    Status.Position = UDim2.new(0, 10, 0, 44)
+    Status.BackgroundTransparency = 1
+    Status.Text = "● VISUAL ATIVADO"
+    Status.TextColor3 = Color3.fromRGB(80, 255, 100)
+    Status.TextSize = 15
+    Status.Font = Enum.Font.SourceSansBold
+    Status.Parent = Main
 
-        enabled = not enabled
+    local Toggle = Instance.new("TextButton")
+    Toggle.Size = UDim2.new(1, -20, 0, 42)
+    Toggle.Position = UDim2.new(0, 10, 0, 78)
+    Toggle.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+    Toggle.Text = "DESATIVAR"
+    Toggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Toggle.TextSize = 16
+    Toggle.Font = Enum.Font.SourceSansBold
+    Toggle.Parent = Main
 
-        if enabled then
+    local Reapply = Instance.new("TextButton")
+    Reapply.Size = UDim2.new(1, -20, 0, 35)
+    Reapply.Position = UDim2.new(0, 10, 0, 126)
+    Reapply.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Reapply.Text = "REAPLICAR VISUAL"
+    Reapply.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Reapply.TextSize = 14
+    Reapply.Font = Enum.Font.SourceSansBold
+    Reapply.Parent = Main
 
-            ApplyClassic()
+    local Footer = Instance.new("TextLabel")
+    Footer.Size = UDim2.new(1, -20, 0, 20)
+    Footer.Position = UDim2.new(0, 10, 1, -22)
+    Footer.BackgroundTransparency = 1
+    Footer.Text = "Classic Visual • Client Side"
+    Footer.TextColor3 = Color3.fromRGB(170, 170, 170)
+    Footer.TextSize = 11
+    Footer.Font = Enum.Font.SourceSans
+    Footer.Parent = Main
 
-            status.Text = "● Visual ativado"
-            status.TextColor3 =
-                Color3.fromRGB(100, 255, 100)
+    Toggle.MouseButton1Click:Connect(function()
 
-            button.Text = "DESATIVAR"
+        if Enabled then
+
+            RestoreOriginal()
+
+            Status.Text = "● VISUAL DESATIVADO"
+            Status.TextColor3 =
+                Color3.fromRGB(255, 180, 80)
+
+            Toggle.Text = "ATIVAR"
 
         else
 
-            status.Text = "● Visual pausado"
-            status.TextColor3 =
-                Color3.fromRGB(255, 180, 100)
+            Enabled = true
 
-            button.Text = "ATIVAR"
+            ApplyClassic()
 
+            Status.Text = "● VISUAL ATIVADO"
+            Status.TextColor3 =
+                Color3.fromRGB(80, 255, 100)
+
+            Toggle.Text = "DESATIVAR"
+        end
+    end)
+
+    Reapply.MouseButton1Click:Connect(function()
+
+        if Enabled then
+            ApplyClassic()
+            Status.Text = "● VISUAL REAPLICADO"
         end
     end)
 end
 
---========================================================--
--- EXECUTAR
---========================================================--
+--============================================================--
+-- AUTO REAPLICAÇÃO
+--============================================================--
+
+if CONFIG.AutoReapply then
+
+    Workspace.DescendantAdded:Connect(function(object)
+
+        if not Enabled then
+            return
+        end
+
+        task.defer(function()
+
+            if object:IsA("BasePart") then
+                applyClassicPart(object)
+            end
+
+        end)
+    end)
+
+    Lighting.ChildAdded:Connect(function(object)
+
+        if not Enabled then
+            return
+        end
+
+        task.defer(function()
+
+            if object:IsA("PostEffect")
+            or object:IsA("Atmosphere") then
+
+                applyClassicEffects()
+            end
+
+        end)
+    end)
+
+end
+
+--============================================================--
+-- INICIAR
+--============================================================--
 
 ApplyClassic()
 createGUI()
 
---========================================================--
--- AUTO-REAPLICAÇÃO
---========================================================--
-
-if CONFIG.AutoReapply then
-
-    Lighting.ChildAdded:Connect(function(object)
-
-        if not enabled then
-            return
-        end
-
-        task.wait(0.2)
-
-        if object:IsA("BloomEffect")
-        or object:IsA("ColorCorrectionEffect")
-        or object:IsA("SunRaysEffect")
-        or object:IsA("DepthOfFieldEffect")
-        or object:IsA("Atmosphere")
-        or object:IsA("BlurEffect") then
-
-            pcall(function()
-                object.Enabled = false
-            end)
-        end
-    end)
-
-    Workspace.DescendantAdded:Connect(function(object)
-
-        if not enabled then
-            return
-        end
-
-        if object:IsA("BasePart") then
-            task.wait()
-            applyClassicPart(object)
-        end
-    end)
-
-end
-
-print("======================================")
-print("   ROBLOX CLASSIC 2008 VISUAL")
-print("   Status: ATIVADO")
-print("======================================")
+print("")
+print("============================================")
+print("     ROBLOX CLASSIC 2008 VISUAL")
+print("============================================")
+print("✓ Compatibility")
+print("✓ Ambient 128")
+print("✓ Brightness 1")
+print("✓ GlobalShadows OFF")
+print("✓ ShadowSoftness 0")
+print("✓ Plastic clássico")
+print("✓ Studs / Inlets")
+print("✓ Pós-processamento moderno OFF")
+print("✓ Skybox 2005-2008")
+print("✓ Água simplificada")
+print("============================================")
